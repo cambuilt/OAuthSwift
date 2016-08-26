@@ -17,29 +17,21 @@ import Foundation
 #endif
 
 @objc public protocol OAuthSwiftURLHandlerType {
-    func handle(url: NSURL)
+    func handle(_ url: URL)
 }
 
 // MARK: Open externally
 public class OAuthSwiftOpenURLExternally: OAuthSwiftURLHandlerType {
-    public class var sharedInstance : OAuthSwiftOpenURLExternally {
-        struct Static {
-            static var onceToken : dispatch_once_t = 0
-            static var instance : OAuthSwiftOpenURLExternally? = nil
-        }
-        dispatch_once(&Static.onceToken) {
-            Static.instance = OAuthSwiftOpenURLExternally()
-        }
-        return Static.instance!
-    }
     
-    @objc public func handle(url: NSURL) {
+    static var sharedInstance : OAuthSwiftOpenURLExternally = OAuthSwiftOpenURLExternally()
+    
+    @objc public func handle(_ url: URL) {
         #if os(iOS) || os(tvOS)
             #if !OAUTH_APP_EXTENSIONS
-                UIApplication.sharedApplication().openURL(url)
+                UIApplication.shared.openURL(url)
             #endif
         #elseif os(watchOS)
-        // WATCHOS: not implemented
+            // WATCHOS: not implemented
         #elseif os(OSX)
             NSWorkspace.sharedWorkspace().openURL(url)
         #endif
@@ -48,114 +40,68 @@ public class OAuthSwiftOpenURLExternally: OAuthSwiftURLHandlerType {
 
 // MARK: Open SFSafariViewController
 #if os(iOS)
-import SafariServices
+    import SafariServices
     
     @available(iOS 9.0, *)
     public class SafariURLHandler: NSObject, OAuthSwiftURLHandlerType, SFSafariViewControllerDelegate {
         
-        public typealias UITransion = (controller: SFSafariViewController, handler: SafariURLHandler) -> Void
-
-        public let oauthSwift: OAuthSwift
-        public var present: UITransion
-        public var dismiss: UITransion
-        // retains observers
+        public let viewController: UIViewController
         var observers = [String: AnyObject]()
-
-        public var factory: (URL: NSURL) -> SFSafariViewController = {URL in
-            return SFSafariViewController(URL: URL)
+        
+        // configure
+        public var animated: Bool = true
+        public var factory: (_ URL: URL) -> SFSafariViewController = {URL in
+            return SFSafariViewController(url: URL)
         }
         
         // delegates
         public var delegate: SFSafariViewControllerDelegate?
-
-        // configure default presentation and dismissal code
-
-        public var animated: Bool = true
         public var presentCompletion: (() -> Void)?
         public var dismissCompletion: (() -> Void)?
-        public var delay: UInt32? = 1
         
         // init
-        public init(viewController: UIViewController, oauthSwift: OAuthSwift) {
-            self.oauthSwift = oauthSwift
-            self.present = { controller, handler in
-                viewController.presentViewController(controller, animated: handler.animated, completion: handler.presentCompletion)
-            }
-            self.dismiss = { controller, handler in
-                viewController.dismissViewControllerAnimated(handler.animated, completion: handler.dismissCompletion)
-            }
+        public init(viewController: UIViewController) {
+            self.viewController = viewController
         }
-
-        public init(present: UITransion, dismiss: UITransion, oauthSwift: OAuthSwift) {
-            self.oauthSwift = oauthSwift
-            self.present = present
-            self.dismiss = dismiss
-        }
-
-        @objc public func handle(url: NSURL) {
-            let controller = factory(URL: url)
+        
+        @objc public func handle(_ url: URL) {
+            let controller = factory(url)
             controller.delegate = self
             
-            // present controller in main thread
-            OAuthSwift.main { [unowned self] in
-                if let delay = self.delay { // sometimes safari show a blank view..
-                    sleep(delay)
-                }
-                self.present(controller: controller, handler: self)
-            }
- 
-            let key = NSUUID().UUIDString
-
-            observers[key] = OAuthSwift.notificationCenter.addObserverForName(
-                OAuthSwift.CallbackNotification.notificationName,
+            let key = UUID().uuidString
+            
+            observers[key] = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name(rawValue: OAuthSwift.CallbackNotification.notificationName),
                 object: nil,
-                queue: NSOperationQueue.mainQueue(),
-                usingBlock:{ [weak self]
+                queue: OperationQueue.main,
+                using:{ [unowned self]
                     notification in
-                    guard let this = self else {
-                        return
+                    if let observer = self.observers[key] {
+                        NotificationCenter.default.removeObserver(observer)
+                        self.observers.removeValue(forKey: key)
                     }
-                    if let observer = this.observers[key] {
-                        OAuthSwift.notificationCenter.removeObserver(observer)
-                        this.observers.removeValueForKey(key)
-                    }
-                    OAuthSwift.main {
-                        this.dismiss(controller: controller, handler: this)
-                    }
+                    
+                    controller.dismiss(animated: self.animated, completion: self.dismissCompletion)
                 }
             )
-        }
-
-        // Clear internal observers on authentification flow
-        public func clearObservers() {
-            clearLocalObservers()
-            self.oauthSwift.removeCallbackNotificationObserver()
-        }
-
-        public func clearLocalObservers() {
-            for (_, observer) in observers {
-                OAuthSwift.notificationCenter.removeObserver(observer)
-            }
-            observers.removeAll()
+            
+            viewController.present(controller, animated: self.animated, completion: self.presentCompletion)
         }
         
         // SFSafariViewControllerDelegate
-        public func safariViewController(controller: SFSafariViewController, activityItemsForURL URL: NSURL, title: String?) -> [UIActivity] {
-            return self.delegate?.safariViewController?(controller, activityItemsForURL: URL, title: title) ?? []
-        }
-
-        public func safariViewControllerDidFinish(controller: SFSafariViewController) {
-            // "Done" pressed
-            self.clearObservers()
-            self.delegate?.safariViewControllerDidFinish?(controller)
-        }
- 
-        public func safariViewController(controller: SFSafariViewController, didCompleteInitialLoad didLoadSuccessfully: Bool) {
-            self.delegate?.safariViewController?(controller, didCompleteInitialLoad: didLoadSuccessfully)
+        public func safariViewController(_ controller: SFSafariViewController, activityItemsFor URL: Foundation.URL, title: String?) -> [UIActivity] {
+            return self.delegate?.safariViewController?(controller, activityItemsFor: URL, title: title) ?? []
         }
         
+        public func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+            self.delegate?.safariViewControllerDidFinish?(controller)
+        }
+        
+        public func safariViewController(_ controller: SFSafariViewController, didCompleteInitialLoad didLoadSuccessfully: Bool) {
+            self.delegate?.safariViewController?(controller, didCompleteInitialLoad: didLoadSuccessfully)
+        }
     }
-
+    
 #endif
 
 
@@ -168,7 +114,7 @@ public class ExtensionContextURLHandler: OAuthSwiftURLHandlerType {
         self.extensionContext = extensionContext
     }
     
-    @objc public func handle(url: NSURL) {
-        extensionContext.openURL(url, completionHandler: nil)
+    @objc public func handle(_ url: URL) {
+        extensionContext.open(url, completionHandler: nil)
     }
 }

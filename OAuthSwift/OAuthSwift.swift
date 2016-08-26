@@ -8,22 +8,22 @@
 
 import Foundation
 
-public class OAuthSwift: NSObject {
+open class OAuthSwift: NSObject {
     
     // MARK: Properties
     
     // Client to make signed request
-    public var client: OAuthSwiftClient
+    open var client: OAuthSwiftClient
     // Version of the protocol
-    public var version: OAuthSwiftCredential.Version { return self.client.credential.version }
+    open var version: OAuthSwiftCredential.Version { return self.client.credential.version }
     
     // Handle the authorize url into a web view or browser
-    public var authorize_url_handler: OAuthSwiftURLHandlerType = OAuthSwiftOpenURLExternally.sharedInstance
+    open var authorize_url_handler: OAuthSwiftURLHandlerType = OAuthSwiftOpenURLExternally.sharedInstance
 
     // MARK: callback alias
-    public typealias TokenSuccessHandler = (credential: OAuthSwiftCredential, response: NSURLResponse?, parameters: Dictionary<String, AnyObject>) -> Void
-    public typealias FailureHandler = (error: NSError) -> Void
-    public typealias TokenRenewedHandler = (credential: OAuthSwiftCredential) -> Void
+    public typealias TokenSuccessHandler = (_ credential: OAuthSwiftCredential, _ response: URLResponse?, _ parameters: Dictionary<String, Any>) -> Void
+    public typealias FailureHandler = (_ error: NSError) -> Void
+    public typealias TokenRenewedHandler = (_ credential: OAuthSwiftCredential) -> Void
     
     // MARK: init
     init(consumerKey: String, consumerSecret: String) {
@@ -37,27 +37,27 @@ public class OAuthSwift: NSObject {
     }
 
     // Handle callback url which contains now token information
-    public class func handleOpenURL(url: NSURL) {
-        let notification = NSNotification(name: CallbackNotification.notificationName, object: nil,
-            userInfo: [CallbackNotification.optionsURLKey: url])
-        notificationCenter.postNotification(notification)
+    open class func handleOpenURL(_ url: URL) {
+        let notification = Notification(name: NSNotification.Name(rawValue: CallbackNotification.notificationName), object: nil,
+                                        userInfo: [CallbackNotification.optionsURLKey: url])
+        notificationCenter.post(notification)
     }
 
     var observer: AnyObject?
-    class var notificationCenter: NSNotificationCenter {
-        return NSNotificationCenter.defaultCenter()
+    class var notificationCenter: NotificationCenter {
+        return NotificationCenter.default
     }
-    class var notificationQueue: NSOperationQueue {
-        return NSOperationQueue.mainQueue()
+    class var notificationQueue: OperationQueue {
+        return OperationQueue.main
     }
 
-    func observeCallback(block: (url: NSURL) -> Void) {
-        self.observer = OAuthSwift.notificationCenter.addObserverForName(CallbackNotification.notificationName, object: nil, queue: OAuthSwift.notificationQueue){
+    func observeCallback(_ block: @escaping (_ url: URL) -> Void) {
+        self.observer = OAuthSwift.notificationCenter.addObserver(forName: NSNotification.Name(rawValue: CallbackNotification.notificationName), object: nil, queue: OAuthSwift.notificationQueue){
             [weak self] notification in
             self?.removeCallbackNotificationObserver()
 
-            if let urlFromUserInfo = notification.userInfo?[CallbackNotification.optionsURLKey] as? NSURL {
-                block(url: urlFromUserInfo)
+            if let urlFromUserInfo = (notification as NSNotification).userInfo?[CallbackNotification.optionsURLKey] as? URL {
+                block(urlFromUserInfo)
             } else {
                 // Internal error
                 assertionFailure()
@@ -66,23 +66,23 @@ public class OAuthSwift: NSObject {
     }
 
     // Remove internal observer on authentification
-    public func removeCallbackNotificationObserver() {
+    open func removeCallbackNotificationObserver() {
       	if let observer = self.observer {
             OAuthSwift.notificationCenter.removeObserver(observer)
         }
     }
     
     // Function to call when web view is dismissed without authentification
-    public func cancel() {
+    open func cancel() {
         self.removeCallbackNotificationObserver()
     }
     
-    static func main(block: () -> Void) {
-        if NSThread.isMainThread() {
+    static func main(_ block: @escaping () -> Void) {
+        if Thread.isMainThread {
             block()
         }
         else {
-            dispatch_async(dispatch_get_main_queue()) {
+            DispatchQueue.main.async {
                 block()
             }
         }
@@ -98,31 +98,12 @@ public let OAuthSwiftErrorResponseDataKey = "oauthswift.error.response.data"
 public let OAuthSwiftErrorResponseKey = "oauthswift.error.response"
 
 public enum OAuthSwiftErrorCode: Int {
-    case GeneralError = -1
-    case TokenExpiredError = -2
-    case MissingStateError = -3
-    case StateNotEqualError = -4
-    case ServerError = -5
-    case EncodingError = -6
-    case AuthorizationPending = -7
-    case RequestCreationError = -8
-    case MissingTokenOrVerifier = -9
-    case RetainError = -10
-}
-
-extension NSError {
-    convenience init(code: OAuthSwiftErrorCode, message: String, errorKey: String = NSLocalizedFailureReasonErrorKey) {
-        let userInfo = [errorKey: message]
-        self.init(domain: OAuthSwiftErrorDomain, code: code.rawValue, userInfo: userInfo)
-    }
-}
-
-extension OAuthSwift {
-
-    static func retainError(failureHandler: FailureHandler?) {
-        #if !OAUTH_NO_RETAIN_ERROR
-        failureHandler?(error: NSError(code: .RetainError, message: "Please retain OAuthSwift object", errorKey: NSLocalizedDescriptionKey))
-        #endif
-    }
-
+    case generalError = -1
+    case tokenExpiredError = -2
+    case missingStateError = -3
+    case stateNotEqualError = -4
+    case serverError = -5
+    case encodingError = -6
+    case authorizationPending = -7
+    case requestCreationError = -8
 }

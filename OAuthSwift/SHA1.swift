@@ -10,15 +10,15 @@ import Foundation
 
 class SHA1 {
     
-    var message: NSData
+    var message: Data
     
-    init(_ message: NSData) {
+    init(_ message: Data) {
         self.message = message
     }
     
     /** Common part for hash calculation. Prepare header data. */
-    func prepare(len:Int = 64) -> NSMutableData {
-        let tmpMessage: NSMutableData = NSMutableData(data: self.message)
+    func prepare(_ len:Int = 64) -> Data {
+        let tmpMessage = (self.message as NSData).mutableCopy() as! NSMutableData
         
         // Step 1. Append Padding Bits
         tmpMessage.appendBytes([0x80]) // append one bit (Byte with one bit) to message
@@ -28,45 +28,50 @@ class SHA1 {
             tmpMessage.appendBytes([0x00])
         }
         
-        return tmpMessage
+        return tmpMessage as Data
     }
-
-    func calculate() -> NSData {
-
+    
+    func calculate() -> Data {
         //var tmpMessage = self.prepare()
         let len = 64
         let h:[UInt32] = [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0]
-
-        let tmpMessage: NSMutableData = NSMutableData(data: self.message)
+        
+        let tmpMessage = NSMutableData(data: self.message as Data)
         
         // Step 1. Append Padding Bits
-        tmpMessage.appendBytes([0x80]) // append one bit (Byte with one bit) to message
+        tmpMessage.appendBytes([0x80])
+        // tmpMessage.append([0x80], count: 1) // append one bit (Byte with one bit) to message
         
         // append "0" bit until message length in bits ≡ 448 (mod 512)
         while tmpMessage.length % len != (len - 8) {
             tmpMessage.appendBytes([0x00])
+            // tmpMessage.append([0x00], count: 1)
         }
-
+        
         // hash values
         var hh = h
         
         // append message length, in a 64-bit big-endian integer. So now the message length is a multiple of 512 bits.
-        tmpMessage.appendBytes((self.message.length * 8).bytes(64 / 8))
+        // let dat =
+        tmpMessage.append(Data(bytes: (self.message.count * 8).bytes(64 / 8)))    // .append(Data(bytes: (self.message.count * 8).bytes(64 / 8)))
         
         // Process the message in successive 512-bit chunks:
         let chunkSizeBytes = 512 / 8 // 64
         var leftMessageBytes = tmpMessage.length
-        var i = 0;
+        var i = 0
+        
+        //                for var i = 0; i < tmpMessage.length; i = i + chunkSizeBytes, leftMessageBytes -= chunkSizeBytes {
+        
         while i < tmpMessage.length {
-            let chunk = tmpMessage.subdataWithRange(NSRange(location: i, length: min(chunkSizeBytes,leftMessageBytes)))
             // break chunk into sixteen 32-bit words M[j], 0 ≤ j ≤ 15, big-endian
             // Extend the sixteen 32-bit words into eighty 32-bit words:
-            var M:[UInt32] = [UInt32](count: 80, repeatedValue: 0)
+            let chunk = tmpMessage.subdata(with: NSRange(location: i, length: min(chunkSizeBytes,leftMessageBytes)))
+            var M:[UInt32] = [UInt32](repeating: 0, count: 80)
             for x in 0..<M.count {
                 switch (x) {
                 case 0...15:
                     var le:UInt32 = 0
-                    chunk.getBytes(&le, range:NSRange(location:x * sizeofValue(M[x]), length: sizeofValue(M[x])))
+                    (chunk as NSData).getBytes(&le, range:NSRange(location:x * MemoryLayout<UInt32>.size, length: MemoryLayout<UInt32>.size))
                     M[x] = le.bigEndian
                     break
                 default:
@@ -121,8 +126,8 @@ class SHA1 {
             hh[2] = (hh[2] &+ C) & 0xffffffff
             hh[3] = (hh[3] &+ D) & 0xffffffff
             hh[4] = (hh[4] &+ E) & 0xffffffff
-			
-            i = i + chunkSizeBytes
+            
+            i += chunkSizeBytes
             leftMessageBytes -= chunkSizeBytes
         }
         
@@ -130,9 +135,9 @@ class SHA1 {
         let buf: NSMutableData = NSMutableData()
         hh.forEach({ (item) -> () in
             var i:UInt32 = item.bigEndian
-            buf.appendBytes(&i, length: sizeofValue(i))
+            buf.append(&i, length: MemoryLayout<UInt32>.size)
         })
         
-        return buf.copy() as! NSData
+        return buf.copy() as! Data
     }
 }
